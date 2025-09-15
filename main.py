@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from app.database import init_db
 from app.dify_client import AsyncDifyClient
 from app.routes import chat, users
-from app.utils.logger import setup_logger, configure_logging
+from app.utils.logger import setup_logger, configure_logging, get_uvicorn_log_config
 
 # Initialize logger
 logger = setup_logger("MindWeb")
@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
         api_url=os.getenv("DIFY_API_URL", "http://dify.mindspringedu.com/v1")
     )
     logger.info("Dify client initialized")
+    # In-memory mapping: our conversation_id -> Dify conversation_id
+    app.state.dify_conversations = {}
     
     yield
     
@@ -133,8 +135,9 @@ def main():
         host="0.0.0.0",
         port=9530,
         reload=False,  # Disable reload for better signal handling
-        log_level="warning",
-        access_log=False,
+        log_config=get_uvicorn_log_config(),
+        log_level="info",
+        access_log=False,  # access logs are noisy; app logs still show requests if needed
         loop="asyncio",
         timeout_keep_alive=5,
         timeout_graceful_shutdown=2  # Short grace period reduces noisy cancellations

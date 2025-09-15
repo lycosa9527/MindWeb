@@ -5,6 +5,34 @@ All notable changes to the MindWeb Flask application will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-09-15
+
+### Changed
+- Migrated to FastAPI app structure with async endpoints and SSE broadcasting.
+- Centralized logging with colorized, uniform console output and shutdown-noise suppression.
+- Local (no-CDN) Markdown rendering for messages (images, links, code, lists) with safe URL checks.
+- UI i18n with language toggle (EN/中文), default language set to Chinese.
+- Config endpoint `/api/chat/config` exposes `WEB_URL`, `AI_NAME`, `AI_PLACEHOLDER`.
+- MindMate branding via `.env` (`AI_NAME`, `AI_PLACEHOLDER`) reflected in UI dynamically.
+- Input placeholder styling improved for readability.
+
+### Added
+- Per-user+conversation mapping to Dify `conversation_id` to avoid “Conversation Not Exists.”
+- Group chat endpoint (`POST /api/chat/group`) that broadcasts without calling Dify.
+- Infinite scroll for history with keyset pagination `before_ms` (backend + frontend).
+- QR share modal (uses `WEB_URL`) and image auto-scroll on load.
+- Deterministic per-user emoji (expanded pool) and server-side persistent usernames (Chinese by default).
+- Online user auto-marking: users inactive for >5 minutes are marked offline.
+
+### Fixed
+- Dify streaming client now uses open-ended read timeout and parses SSE correctly.
+- Avoided FastAPI `Request` shadowing in chat route; properly use `req.app.state`.
+- Render Markdown for both streaming and loaded history; images no longer show as plain text on refresh.
+- Left/right bubble alignment: only own messages on the right; AI/others on the left.
+
+### Notes
+- Multi-request Dify concurrency: initial stabilization done (mapping + SSE). Further tuning (e.g., queueing, retries) can follow.
+
 ## [1.5.0] - 2025-09-14
 
 ### 🏗️ **FRONTEND ARCHITECTURE MODERNIZATION RELEASE**

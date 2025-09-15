@@ -7,12 +7,18 @@ class MindWebChatroom {
     constructor() {
         this.currentMode = 'mindmate';
         this.userId = this.generateUserId();
-        this.username = this.generateUsername();
+        this.username = this.loadOrGenerateUsername();
+        this.userEmoji = this.loadOrGenerateEmoji();
         this.conversationId = null;
         this.eventSource = null;
         this.aiMessageBuffer = '';
         this.lang = localStorage.getItem('lang') || 'zh';
         this.webUrl = null;
+        this.aiName = 'MindMate';
+        this.aiPlaceholder = 'Ask MindMate AI anything...';
+        this.nextBeforeMs = null;
+        this.loadingOlder = false;
+        this.scrollDebounceTimer = null;
         this.i18n = {
             en: {
                 share: 'Share',
@@ -53,7 +59,7 @@ class MindWebChatroom {
                 failedCopy: '复制链接失败',
                 onlineUsers: '在线用户',
                 mindmateMeta: 'MindMate',
-                shareTitle: '分享',
+                shareTitle: '使用相机扫一扫',
                 close: '关闭'
             }
         };
@@ -62,11 +68,108 @@ class MindWebChatroom {
         this.bindEvents();
         this.applyTranslations();
         this.fetchConfig();
+        this.loadInitialHistory();
         this.connectSSE();
         this.trackUserVisit();
         this.loadOnlineUsers();
         
         console.log(`Chatroom initialized for user: ${this.username} (${this.userId})`);
+    }
+
+    async loadOlderMessages() {
+        if (this.loadingOlder || !this.nextBeforeMs) return;
+        this.loadingOlder = true;
+        try {
+            const url = `/api/chat/history?limit=20&before_ms=${encodeURIComponent(this.nextBeforeMs)}`;
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !Array.isArray(data.messages) || data.messages.length === 0) {
+                this.nextBeforeMs = null;
+                return;
+            }
+            const prevHeight = this.messagesContainer.scrollHeight;
+            const frag = document.createDocumentFragment();
+            for (const msg of data.messages) {
+                const isAi = msg.message_type === 'ai';
+                const el = isAi
+                    ? this.buildMessageElement('ai', msg.content, this.t('mindmateMeta'), '🐈‍⬛')
+                    : this.buildMessageElement(
+                        (msg.user_id && msg.user_id === this.userId) ? 'user' : 'other',
+                        msg.content,
+                        (msg.user_id && msg.user_id === this.userId) ? this.username : (msg.username || 'User'),
+                        (msg.user_id && msg.user_id === this.userId) ? this.userEmoji : '😀'
+                      );
+                frag.appendChild(el);
+            }
+            this.messagesContainer.insertBefore(frag, this.messagesContainer.firstChild);
+            const newHeight = this.messagesContainer.scrollHeight;
+            this.messagesContainer.scrollTop = newHeight - prevHeight;
+            this.nextBeforeMs = data.next_before_ms || null;
+        } catch (e) {
+            console.warn('Failed to load older messages', e);
+        } finally {
+            this.loadingOlder = false;
+        }
+    }
+
+    buildMessageElement(type, content, username, emoji = '😀') {
+        const messageDiv = document.createElement('div');
+        let cls = 'message';
+        if (type === 'user') {
+            cls = 'message user';
+        } else if (type === 'system') {
+            cls = 'message system';
+        } else if (type === 'other' || type === 'ai') {
+            cls = 'message ai';
+        }
+        messageDiv.className = cls;
+
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.textContent = emoji;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.innerHTML = this.renderMarkdown(content);
+
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'message-meta';
+        metaDiv.textContent = `${username} • ${new Date().toLocaleTimeString()}`;
+        contentDiv.appendChild(metaDiv);
+
+        if (type === 'user') {
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(avatar);
+        } else {
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(contentDiv);
+        }
+        return messageDiv;
+    }
+    async loadInitialHistory() {
+        try {
+            const res = await fetch('/api/chat/history?limit=20');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !Array.isArray(data.messages)) return;
+            this.nextBeforeMs = data.next_before_ms || null;
+            for (const msg of data.messages) {
+                const isAi = msg.message_type === 'ai';
+                if (isAi) {
+                    this.addMessage('ai', msg.content, this.t('mindmateMeta'), '🐈‍⬛');
+                    continue;
+                }
+                const isMine = msg.user_id && msg.user_id === this.userId;
+                if (isMine) {
+                    this.addMessage('user', msg.content, this.username, this.userEmoji);
+                } else {
+                    this.addMessage('other', msg.content, (msg.username || 'User'), '😀');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load initial history', e);
+        }
     }
     
     initializeElements() {
@@ -113,6 +216,17 @@ class MindWebChatroom {
         this.messageInput.addEventListener('input', () => {
             this.autoResizeTextarea();
             this.updateSendButton();
+        });
+
+        // Infinite scroll: load older messages when reaching top (debounced)
+        this.messagesContainer.addEventListener('scroll', () => {
+            if (this.messagesContainer.scrollTop === 0) {
+                if (this.scrollDebounceTimer) return;
+                this.scrollDebounceTimer = setTimeout(() => {
+                    this.scrollDebounceTimer = null;
+                }, 400);
+                this.loadOlderMessages();
+            }
         });
         
         // Header buttons
@@ -196,6 +310,17 @@ class MindWebChatroom {
             if (res.ok) {
                 const data = await res.json();
                 this.webUrl = data.web_url || null;
+                if (data.ai_name) this.aiName = data.ai_name;
+                if (data.ai_placeholder) this.aiPlaceholder = data.ai_placeholder;
+                // Update i18n labels dynamically based on config
+                this.i18n.en.mindmate = this.aiName;
+                this.i18n.zh.mindmate = this.aiName; // keep same name unless localized later
+                this.i18n.en.mindmateMeta = this.aiName;
+                this.i18n.zh.mindmateMeta = this.aiName;
+                this.i18n.en.askMindmatePlaceholder = this.aiPlaceholder;
+                this.i18n.zh.askMindmatePlaceholder = this.aiPlaceholder;
+                // Re-apply translations to reflect new labels/placeholders
+                this.applyTranslations();
             }
         } catch (e) {
             console.warn('Failed to load config', e);
@@ -213,6 +338,14 @@ class MindWebChatroom {
             return this.generateZhUsername();
         }
         return this.generateEnUsername();
+    }
+
+    loadOrGenerateUsername() {
+        const saved = localStorage.getItem('username');
+        if (saved && saved.trim()) return saved.trim();
+        const name = this.generateUsername();
+        localStorage.setItem('username', name);
+        return name;
     }
 
     generateEnUsername() {
@@ -281,7 +414,7 @@ class MindWebChatroom {
         if (!content) return;
         
         // Add user message to UI immediately
-        this.addMessage('user', content, this.username, '😀');
+        this.addMessage('user', content, this.username, this.userEmoji);
         
         // Clear input
         this.messageInput.value = '';
@@ -309,7 +442,7 @@ class MindWebChatroom {
                     user_id: this.userId,
                     conversation_id: this.conversationId,
                     username: this.username,
-                    emoji: '😀'
+                    emoji: this.userEmoji
                 })
             });
             
@@ -334,8 +467,8 @@ class MindWebChatroom {
         try {
             console.log('Sending group message:', content);
             
-            // For group chat, we'll use the same endpoint but handle it differently
-            const response = await fetch('/api/chat/stream', {
+            // For group chat, do not trigger Dify. Use group endpoint.
+            const response = await fetch('/api/chat/group', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -344,7 +477,7 @@ class MindWebChatroom {
                     message: content,
                     user_id: this.userId,
                     username: this.username,
-                    emoji: '😀'
+                    emoji: this.userEmoji
                 })
             });
             
@@ -395,9 +528,9 @@ class MindWebChatroom {
         
         switch (data.type) {
             case 'user_message':
-                // Only show messages from other users
+                // Only show messages from other users (left side)
                 if (data.from_user_id !== this.userId) {
-                    this.addMessage('user', data.content, data.from_user, data.emoji);
+                    this.addMessage('other', data.content, data.from_user, data.emoji);
                 }
                 break;
                 
@@ -424,7 +557,16 @@ class MindWebChatroom {
     
     addMessage(type, content, username, emoji = '😀') {
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
+        // Right-align only 'user'. Map 'other' to left bubble style like AI.
+        let cls = 'message';
+        if (type === 'user') {
+            cls = 'message user';
+        } else if (type === 'system') {
+            cls = 'message system';
+        } else if (type === 'other' || type === 'ai') {
+            cls = 'message ai';
+        }
+        messageDiv.className = cls;
         
         const avatar = document.createElement('div');
         avatar.className = 'message-avatar';
@@ -432,7 +574,7 @@ class MindWebChatroom {
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.textContent = content;
+        contentDiv.innerHTML = this.renderMarkdown(content);
         
         const metaDiv = document.createElement('div');
         metaDiv.className = 'message-meta';
@@ -449,6 +591,8 @@ class MindWebChatroom {
         }
         
         this.messagesContainer.appendChild(messageDiv);
+        // Ensure we scroll after async media (images) load
+        this.observeImages(messageDiv);
         this.scrollToBottom();
     }
     
@@ -461,7 +605,7 @@ class MindWebChatroom {
             
             const avatar = document.createElement('div');
             avatar.className = 'message-avatar';
-            avatar.textContent = '🤖';
+            avatar.textContent = '🐈‍⬛';
             
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
@@ -482,13 +626,104 @@ class MindWebChatroom {
         }
         
         const contentDiv = aiMessage.querySelector('.message-content');
-        const textNode = contentDiv.childNodes[0];
-        
-        // Add content to buffer and display
+        // Add content to buffer and display (render markdown safely)
         this.aiMessageBuffer += content;
-        textNode.textContent = this.aiMessageBuffer;
+        contentDiv.innerHTML = this.renderMarkdown(this.aiMessageBuffer);
+        // If markdown introduced images, scroll after they load
+        this.observeImages(aiMessage);
         
         this.scrollToBottom();
+    }
+
+    renderMarkdown(text) {
+        // Local lightweight Markdown renderer with basic sanitization
+        if (!text) return '';
+        const escapeHtml = (s) => s
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const isSafeUrl = (url) => {
+            try {
+                const u = new URL(url, window.location.origin);
+                return u.protocol === 'http:' || u.protocol === 'https:';
+            } catch { return false; }
+        };
+
+        // Preserve code blocks first
+        const codeBlocks = [];
+        let src = String(text);
+        src = src.replace(/```([\s\S]*?)```/g, (_, code) => {
+            const idx = codeBlocks.length;
+            codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+            return `@@CODEBLOCK_${idx}@@`;
+        });
+
+        // Escape remaining HTML
+        src = escapeHtml(src);
+
+        // Inline code
+        src = src.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // Images ![alt](url)
+        src = src.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, (m, alt, url) => {
+            url = url.trim();
+            return isSafeUrl(url) ? `<img src="${url}" alt="${alt}" style="max-width:100%; height:auto;"/>` : m;
+        });
+
+        // Links [text](url)
+        src = src.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, (m, text, url) => {
+            url = url.trim();
+            return isSafeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>` : text;
+        });
+
+        // Bold and italics
+        src = src.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        src = src.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+        // Simple lists (unordered)
+        const lines = src.split(/\r?\n/);
+        let out = '';
+        let inList = false;
+        for (const line of lines) {
+            const m = line.match(/^\s*[-\*]\s+(.*)$/);
+            if (m) {
+                if (!inList) { out += '<ul>'; inList = true; }
+                out += `<li>${m[1]}</li>`;
+            } else {
+                if (inList) { out += '</ul>'; inList = false; }
+                if (line.trim() === '') {
+                    out += '<br/>';
+                } else {
+                    out += `<p>${line}</p>`;
+                }
+            }
+        }
+        if (inList) out += '</ul>';
+
+        // Restore code blocks
+        out = out.replace(/@@CODEBLOCK_(\d+)@@/g, (_, i) => codeBlocks[Number(i)] || '');
+        return out;
+    }
+
+    observeImages(rootEl) {
+        try {
+            const imgs = rootEl.querySelectorAll('img');
+            if (!imgs || imgs.length === 0) return;
+            imgs.forEach(img => {
+                const onLoad = () => this.scrollToBottom();
+                // If already loaded, scroll immediately; else after load
+                if (img.complete) {
+                    onLoad();
+                } else {
+                    img.addEventListener('load', onLoad, { once: true });
+                    img.addEventListener('error', () => {}, { once: true });
+                }
+            });
+        } catch (e) {
+            // noop
+        }
     }
     
     finishAIMessage() {
@@ -526,7 +761,7 @@ class MindWebChatroom {
                 body: JSON.stringify({
                     user_id: this.userId,
                     username: this.username,
-                    emoji: '😀'
+                    emoji: this.userEmoji
                 })
             });
             
@@ -536,6 +771,47 @@ class MindWebChatroom {
         } catch (error) {
             console.error('Error tracking user visit:', error);
         }
+    }
+
+    // ---------- Emoji handling ----------
+    loadOrGenerateEmoji() {
+        const saved = localStorage.getItem('userEmoji');
+        if (saved) return saved;
+        const emoji = this.pickEmoji(this.userId);
+        localStorage.setItem('userEmoji', emoji);
+        return emoji;
+    }
+    
+    pickEmoji(seedStr) {
+        // Expanded and varied emoji pool (faces, animals, food, objects)
+        const emojis = [
+            '😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','😘','😗','😙','😚','😋',
+            '😜','🤪','😝','😛','🤑','🤗','🤭','🤫','🤔','🤓','😎','🥳','🤠','🤡','👻','👽','🤖','🎃','😺','😸',
+            '😻','😼','😽','🙀','😿','😹','🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🐮','🐷','🐵','🦄','🐥',
+            '🐧','🐢','🐸','🐙','🦋','🐝','🐳','🐬','🦕','🦖','🌸','🌼','🌻','🌷','🍀','🍃','🍎','🍉','🍓','🍍',
+            '🍓','🍊','🍋','🍇','🍑','🍒','🍌','🍩','🍪','🍰','🧁','🍫','🍬','🍭','🍯','🥞','🧇','🥐','🥯','🥨',
+            '🎈','🎉','🎊','🎁','🪅','🧸','🪄','⭐','🌟','⚡','✨','💎','🧩','🎲','🎮','🎧','🎵','🎶','🎨'
+        ];
+        // Mix in a stronger seed using crypto if available, persisted per browser
+        let browserSalt = localStorage.getItem('emojiSalt');
+        if (!browserSalt) {
+            if (window.crypto && window.crypto.getRandomValues) {
+                const arr = new Uint32Array(2);
+                window.crypto.getRandomValues(arr);
+                browserSalt = `${arr[0].toString(36)}${arr[1].toString(36)}`;
+            } else {
+                browserSalt = String(Date.now());
+            }
+            localStorage.setItem('emojiSalt', browserSalt);
+        }
+        const fullSeed = `${seedStr}:${browserSalt}`;
+        let hash = 0;
+        for (let i = 0; i < fullSeed.length; i++) {
+            hash = ((hash << 5) - hash) + fullSeed.charCodeAt(i);
+            hash |= 0;
+        }
+        const idx = Math.abs(hash) % emojis.length;
+        return emojis[idx];
     }
     
     async loadOnlineUsers() {
