@@ -47,9 +47,14 @@ class BroadcastManager:
             disconnected_sse = set()
             for queue in self.sse_listeners:
                 try:
+                    if queue.full():
+                        try:
+                            _ = queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
                     queue.put_nowait(message)
                 except asyncio.QueueFull:
-                    logger.debug("SSE queue full, skipping message")
+                    logger.debug("SSE queue full, dropping oldest message for this listener")
                 except Exception as e:
                     logger.debug(f"Failed to send to SSE listener: {e}")
                     disconnected_sse.add(queue)

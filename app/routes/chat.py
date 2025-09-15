@@ -98,79 +98,94 @@ async def stream_chat(
                 'timestamp': int(time.time() * 1000)
             })
             
-            # Process Dify response and broadcast in real-time
-            ai_response_content = ""
-            # Use mapped Dify conversation id if known; scope per user+conversation
+            # Directly stream from Dify and broadcast without StreamTaskManager
             map_key = f"{payload.user_id}:{conversation.conversation_id}"
-            mapped_dify_conv_id = dify_conv_map.get(map_key)
-            async for chunk in dify_client.stream_chat(
-                payload.message,
-                payload.user_id,
-                mapped_dify_conv_id
-            ):
-                if chunk.get('event') == 'message':
-                    # Regular message content
-                    content = chunk.get('answer', '')
-                    if content:
-                        ai_response_content += content
-                        
-                        # Broadcast AI response chunk to all connected clients
+            ai_text = ""
+            dify_conv_id = dify_conv_map.get(map_key)
+            stream_id = str(uuid.uuid4())
+            try:
+                async for chunk in dify_client.stream_chat(payload.message, payload.user_id, dify_conv_id):
+                    event = chunk.get('event')
+                    if event == 'message':
+                        content = chunk.get('answer', '')
+                        if content:
+                            ai_text += content
+                            await broadcast_manager.broadcast({
+                                'type': 'ai_message_chunk',
+                                'content': content,
+                                'conversation_id': conversation.conversation_id,
+                                'stream_id': stream_id,
+                                'reply_to_username': payload.username or user.username,
+                                'reply_to_user_id': payload.user_id,
+                                'prompt': payload.message,
+                                'from_user': payload.username or user.username,
+                                'from_user_id': payload.user_id,
+                                'timestamp': int(time.time() * 1000)
+                            })
+                        conv_id = chunk.get('conversation_id')
+                        if conv_id and not dify_conv_map.get(map_key):
+                            dify_conv_map[map_key] = conv_id
+                    elif event == 'message_end':
                         await broadcast_manager.broadcast({
-                            'type': 'ai_message_chunk',
-                            'content': content,
+                            'type': 'ai_message_end',
                             'conversation_id': conversation.conversation_id,
+                            'stream_id': stream_id,
+                            'reply_to_username': payload.username or user.username,
+                            'reply_to_user_id': payload.user_id,
+                            'prompt': payload.message,
                             'from_user': payload.username or user.username,
                             'from_user_id': payload.user_id,
                             'timestamp': int(time.time() * 1000)
                         })
-                    
-                    # Capture Dify conversation id if present in chunk
-                    incoming_conv_id = chunk.get('conversation_id')
-                    if incoming_conv_id and not mapped_dify_conv_id:
-                        dify_conv_map[map_key] = incoming_conv_id
-                        mapped_dify_conv_id = incoming_conv_id
-                
-                elif chunk.get('event') == 'message_end':
-                    # Save complete AI response to database
-                    if ai_response_content:
-                        ai_message = Message(
-                            message_id=str(uuid.uuid4()),
-                            content=ai_response_content,
-                            message_type='ai',
-                            user_id=payload.user_id,
-                            conversation_id=conversation.conversation_id
-                        )
-                        db.add(ai_message)
-                        await db.commit()
-                    
-                    # Ensure Dify conversation id is captured at end as well
-                    incoming_conv_id = chunk.get('conversation_id')
-                    if incoming_conv_id:
-                        dify_conv_map[map_key] = incoming_conv_id
-                    
-                    # Broadcast message end
-                    await broadcast_manager.broadcast({
-                        'type': 'ai_message_end',
-                        'conversation_id': conversation.conversation_id,
-                        'from_user': payload.username or user.username,
-                        'from_user_id': payload.user_id,
-                        'timestamp': int(time.time() * 1000)
-                    })
-                    break
-                
-                elif chunk.get('event') == 'error':
-                    logger.error(f"Dify API error: {chunk.get('error')}")
-                    await broadcast_manager.broadcast({
-                        'type': 'error',
-                        'error': chunk.get('error'),
-                        'from_user': payload.username or user.username,
-                        'from_user_id': payload.user_id,
-                        'timestamp': int(time.time() * 1000)
-                    })
-                    # Clear any bad mapping to avoid reusing invalid id next time
-                    if map_key in dify_conv_map:
-                        del dify_conv_map[map_key]
-                    break
+                        conv_id = chunk.get('conversation_id')
+                        if conv_id:
+                            dify_conv_map[map_key] = conv_id
+                        break
+                    elif event == 'error':
+                        await broadcast_manager.broadcast({
+                            'type': 'error',
+                            'error': chunk.get('error'),
+                            'stream_id': stream_id,
+                            'reply_to_username': payload.username or user.username,
+                            'reply_to_user_id': payload.user_id,
+                            'prompt': payload.message,
+                            'from_user': payload.username or user.username,
+                            'from_user_id': payload.user_id,
+                            'timestamp': int(time.time() * 1000)
+                        })
+                        # Clear bad mapping
+                        if map_key in dify_conv_map:
+                            dify_conv_map.pop(map_key, None)
+                        ai_text = ""
+                        break
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                await broadcast_manager.broadcast({
+                    'type': 'error',
+                    'error': str(e),
+                    'stream_id': stream_id,
+                    'reply_to_username': payload.username or user.username,
+                    'reply_to_user_id': payload.user_id,
+                    'prompt': payload.message,
+                    'from_user': payload.username or user.username,
+                    'from_user_id': payload.user_id,
+                    'timestamp': int(time.time() * 1000)
+                })
+                ai_text = ""
+
+            # Persist AI message after stream end
+            if ai_text:
+                ai_message = Message(
+                    message_id=str(uuid.uuid4()),
+                    content=ai_text,
+                    message_type='ai',
+                    user_id=payload.user_id,
+                    conversation_id=conversation.conversation_id
+                )
+                db.add(ai_message)
+                await db.commit()
             
             # Return success response
             return {
@@ -343,7 +358,7 @@ async def broadcast_stream():
     
     async def event_generator():
         # Create a queue for this connection
-        queue = asyncio.Queue()
+        queue = asyncio.Queue(maxsize=200)
         
         # Add this queue to the broadcast manager
         broadcast_manager.add_listener(queue)
@@ -380,6 +395,7 @@ async def broadcast_stream():
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Cache-Control",
         }

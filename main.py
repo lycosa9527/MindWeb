@@ -25,6 +25,7 @@ from app.database import init_db
 from app.dify_client import AsyncDifyClient
 from app.routes import chat, users
 from app.utils.logger import setup_logger, configure_logging, get_uvicorn_log_config
+ 
 
 # Initialize logger
 logger = setup_logger("MindWeb")

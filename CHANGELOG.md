@@ -5,6 +5,38 @@ All notable changes to the MindWeb Flask application will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-09-15
+
+### Changed
+- AI message bubble layout: moved username and prompt display below MindMate timestamp for better context flow.
+- Collapsed preview increased from 3 lines to 5 lines for better content visibility.
+- Replaced plain text "Streaming…" indicator with animated pulsing dots (● ● ●) for better visual feedback.
+
+### Added
+- Visual streaming animation with CSS keyframes for a more polished user experience.
+- Enhanced AI bubble structure with logical information hierarchy (AI identity → context → content).
+
+### Fixed
+- Improved readability of AI responses by showing more content in collapsed preview mode.
+
+## [2.1.0] - 2025-09-15
+
+### Changed
+- Removed `StreamTaskManager` and simplified backend to stream directly from Dify in the chat route.
+- Bounded SSE listener queues and drop-oldest policy to prevent memory bloat for slow clients.
+- Added `X-Accel-Buffering: no` to SSE endpoint for better reverse-proxy streaming behavior.
+
+### Added
+- Collapsed-by-default AI response preview (first 3 lines) with expand/collapse control.
+- Bottom "Streaming" tray showing active stream count and quick navigation to streaming messages.
+- Per-conversation streaming state on the frontend to support multiple concurrent streams cleanly.
+
+### Fixed
+- Prevented UI clutter during concurrent long responses by showing concise previews and a streaming indicator.
+
+### Notes
+- This change removes concurrency gating; throughput is now limited by server/LLM capacity. Consider soft caps later if needed.
+
 ## [2.0.0] - 2025-09-15
 
 ### Changed

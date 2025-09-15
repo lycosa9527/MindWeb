@@ -72,6 +72,11 @@ class MindWebChatroom {
         this.connectSSE();
         this.trackUserVisit();
         this.loadOnlineUsers();
+        // Streaming/UI state
+        this.streamState = {}; // key: stream_id -> { fullText, isStreaming, el, expanded, conversationId }
+        this.streamingCount = 0;
+        // Markdown renderer (full support) with sanitization handled via DOMPurify
+        this.md = (window.markdownit ? window.markdownit({ html: false, linkify: true, breaks: true }) : null);
         
         console.log(`Chatroom initialized for user: ${this.username} (${this.userId})`);
     }
@@ -189,6 +194,11 @@ class MindWebChatroom {
         this.qrCodeEl = document.getElementById('qrcode');
         this.qrUrlEl = document.getElementById('qrUrl');
         this.qrTitleEl = document.getElementById('qrTitle');
+        this.streamingTray = document.getElementById('streamingTray');
+        this.streamingTrayBtn = document.getElementById('streamingTrayBtn');
+        this.streamingTrayCount = document.getElementById('streamingTrayCount');
+        this.streamingPanel = document.getElementById('streamingPanel');
+        this.streamingList = document.getElementById('streamingList');
     }
     
     bindEvents() {
@@ -250,6 +260,11 @@ class MindWebChatroom {
         if (this.qrModal) {
             this.qrModal.addEventListener('click', (e) => {
                 if (e.target === this.qrModal) this.closeQr();
+            });
+        }
+        if (this.streamingTrayBtn) {
+            this.streamingTrayBtn.addEventListener('click', () => {
+                this.streamingPanel.classList.toggle('show');
             });
         }
         
@@ -525,6 +540,8 @@ class MindWebChatroom {
     
     handleSSEMessage(data) {
         console.log('Received SSE message:', data);
+        // expose last event for initial stream metadata consumption
+        window.lastSSEData = data;
         
         switch (data.type) {
             case 'user_message':
@@ -535,11 +552,11 @@ class MindWebChatroom {
                 break;
                 
             case 'ai_message_chunk':
-                this.addAIMessageChunk(data.content, data.from_user);
+                this.addAIMessageChunk(data.content, data.from_user, data.conversation_id, data.stream_id);
                 break;
                 
             case 'ai_message_end':
-                this.finishAIMessage();
+                this.finishAIMessage(data.stream_id);
                 break;
                 
             case 'error':
@@ -596,115 +613,147 @@ class MindWebChatroom {
         this.scrollToBottom();
     }
     
-    addAIMessageChunk(content, fromUser) {
-        let aiMessage = document.querySelector('.ai-message-streaming');
-        
-        if (!aiMessage) {
-            aiMessage = document.createElement('div');
-            aiMessage.className = 'message ai ai-message-streaming';
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'message-avatar';
-            avatar.textContent = '🐈‍⬛';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            
-            const metaDiv = document.createElement('div');
-            metaDiv.className = 'message-meta';
-            metaDiv.textContent = `${this.t('mindmateMeta')} • ${new Date().toLocaleTimeString()}`;
-            
-            contentDiv.appendChild(metaDiv);
-            
-            aiMessage.appendChild(avatar);
-            aiMessage.appendChild(contentDiv);
-            
-            this.messagesContainer.appendChild(aiMessage);
-            
-            // Clear any previous AI message buffer
-            this.aiMessageBuffer = '';
+    addAIMessageChunk(content, fromUser, conversationId, streamId) {
+        if (!streamId) streamId = `${conversationId || 'default'}:${Date.now()}`;
+        let state = this.streamState[streamId];
+        if (!state) {
+            const el = this.createAIMessageCard();
+            el.dataset.streamId = streamId;
+            this.messagesContainer.appendChild(el);
+            this.observeImages(el);
+            state = this.streamState[streamId] = {
+                fullText: '',
+                isStreaming: true,
+                el,
+                expanded: false,
+                conversationId: conversationId || 'default'
+            };
+            this.incrementStreaming(streamId);
         }
-        
-        const contentDiv = aiMessage.querySelector('.message-content');
-        // Add content to buffer and display (render markdown safely)
-        this.aiMessageBuffer += content;
-        contentDiv.innerHTML = this.renderMarkdown(this.aiMessageBuffer);
-        // If markdown introduced images, scroll after they load
-        this.observeImages(aiMessage);
-        
+        state.fullText += content || '';
+        // Set reply-to info once if available
+        if (!state.replySet && window.lastSSEData) {
+            const d = window.lastSSEData;
+            if (d && d.stream_id === streamId) {
+                state.replyTo = d.reply_to_username || '';
+                state.prompt = d.prompt || '';
+                state.replySet = true;
+            }
+        }
+        this.updateAIMessagePreview(state);
         this.scrollToBottom();
     }
 
-    renderMarkdown(text) {
-        // Local lightweight Markdown renderer with basic sanitization
-        if (!text) return '';
-        const escapeHtml = (s) => s
+    createAIMessageCard() {
+        const aiMessage = document.createElement('div');
+        aiMessage.className = 'message ai ai-message-streaming';
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.textContent = '🐈‍⬛';
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'message-meta';
+        metaDiv.textContent = `${this.t('mindmateMeta')} • ${new Date().toLocaleTimeString()}`;
+        const replyDiv = document.createElement('div');
+        replyDiv.className = 'ai-reply';
+        replyDiv.style.cssText = 'margin-top:6px; font-size:12px; color:#6b7280; font-style:italic;';
+        const previewDiv = document.createElement('div');
+        previewDiv.className = 'ai-preview';
+        const controlsDiv = document.createElement('div');
+        controlsDiv.className = 'ai-controls';
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'ai-toggle-btn';
+        toggleBtn.textContent = 'Show full';
+        toggleBtn.addEventListener('click', () => {
+            const streamId = aiMessage.dataset.streamId;
+            const st = this.streamState[streamId];
+            if (!st) return;
+            st.expanded = !st.expanded;
+            this.updateAIMessagePreview(st);
+            toggleBtn.textContent = st.expanded ? 'Collapse' : 'Show full';
+        });
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'ai-status';
+        statusSpan.textContent = 'Streaming…';
+        controlsDiv.appendChild(toggleBtn);
+        controlsDiv.appendChild(statusSpan);
+        contentDiv.appendChild(metaDiv);
+        contentDiv.appendChild(replyDiv);
+        contentDiv.appendChild(previewDiv);
+        contentDiv.appendChild(controlsDiv);
+        aiMessage.appendChild(avatar);
+        aiMessage.appendChild(contentDiv);
+        return aiMessage;
+    }
+
+    updateAIMessagePreview(state) {
+        const el = state.el;
+        const previewDiv = el.querySelector('.ai-preview');
+        const replyDiv = el.querySelector('.ai-reply');
+        const statusSpan = el.querySelector('.ai-status');
+        if (!previewDiv) return;
+        if (state.expanded) {
+            previewDiv.innerHTML = this.renderMarkdown(state.fullText);
+            previewDiv.classList.remove('clamped');
+        } else {
+            const preview = this.firstNLines(state.fullText, 5);
+            previewDiv.innerHTML = this.renderMarkdown(preview);
+            previewDiv.classList.add('clamped');
+        }
+        if (replyDiv) {
+            const atUser = state.replyTo ? `@${state.replyTo}` : '';
+            const prompt = state.prompt ? ` — ${this.escapeHtmlInline(state.prompt)}` : '';
+            replyDiv.innerHTML = (atUser || prompt) ? `${atUser}${prompt}` : '';
+        }
+        if (state.isStreaming) {
+            statusSpan.innerHTML = '<span class="streaming-dots">● ● ●</span>';
+            statusSpan.classList.add('streaming');
+        } else {
+            statusSpan.textContent = '';
+            statusSpan.classList.remove('streaming');
+        }
+    }
+
+    escapeHtmlInline(s) {
+        return String(s)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
-        const isSafeUrl = (url) => {
-            try {
-                const u = new URL(url, window.location.origin);
-                return u.protocol === 'http:' || u.protocol === 'https:';
-            } catch { return false; }
-        };
+    }
 
-        // Preserve code blocks first
-        const codeBlocks = [];
-        let src = String(text);
-        src = src.replace(/```([\s\S]*?)```/g, (_, code) => {
-            const idx = codeBlocks.length;
-            codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
-            return `@@CODEBLOCK_${idx}@@`;
-        });
+    firstNLines(text, n) {
+        if (!text) return '';
+        const lines = String(text).split(/\r?\n/);
+        const first = lines.slice(0, n).join('\n');
+        return first;
+    }
 
-        // Escape remaining HTML
-        src = escapeHtml(src);
-
-        // Inline code
-        src = src.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-        // Images ![alt](url)
-        src = src.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, (m, alt, url) => {
-            url = url.trim();
-            return isSafeUrl(url) ? `<img src="${url}" alt="${alt}" style="max-width:100%; height:auto;"/>` : m;
-        });
-
-        // Links [text](url)
-        src = src.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, (m, text, url) => {
-            url = url.trim();
-            return isSafeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>` : text;
-        });
-
-        // Bold and italics
-        src = src.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        src = src.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-        // Simple lists (unordered)
-        const lines = src.split(/\r?\n/);
-        let out = '';
-        let inList = false;
-        for (const line of lines) {
-            const m = line.match(/^\s*[-\*]\s+(.*)$/);
-            if (m) {
-                if (!inList) { out += '<ul>'; inList = true; }
-                out += `<li>${m[1]}</li>`;
-            } else {
-                if (inList) { out += '</ul>'; inList = false; }
-                if (line.trim() === '') {
-                    out += '<br/>';
-                } else {
-                    out += `<p>${line}</p>`;
+    renderMarkdown(text) {
+        if (!text) return '';
+        try {
+            if (this.md) {
+                const rawHtml = this.md.render(String(text));
+                if (window.DOMPurify) {
+                    return window.DOMPurify.sanitize(rawHtml, {
+                        USE_PROFILES: { html: true },
+                        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-]|$))/i
+                    });
                 }
+                return rawHtml;
             }
+        } catch (e) {
+            console.warn('Markdown render failed', e);
         }
-        if (inList) out += '</ul>';
-
-        // Restore code blocks
-        out = out.replace(/@@CODEBLOCK_(\d+)@@/g, (_, i) => codeBlocks[Number(i)] || '');
-        return out;
+        // Fallback: escape only
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     observeImages(rootEl) {
@@ -726,11 +775,43 @@ class MindWebChatroom {
         }
     }
     
-    finishAIMessage() {
-        const aiMessage = document.querySelector('.ai-message-streaming');
-        if (aiMessage) {
-            aiMessage.classList.remove('ai-message-streaming');
-            console.log('AI message completed:', this.aiMessageBuffer);
+    finishAIMessage(streamId) {
+        if (!streamId) return;
+        const state = this.streamState[streamId];
+        if (!state) return;
+        state.isStreaming = false;
+        if (state.el) state.el.classList.remove('ai-message-streaming');
+        this.updateAIMessagePreview(state);
+        this.decrementStreaming(streamId);
+    }
+
+    incrementStreaming(streamId) {
+        this.streamingCount += 1;
+        if (this.streamingTray) this.streamingTray.style.display = 'flex';
+        if (this.streamingTrayCount) this.streamingTrayCount.textContent = String(this.streamingCount);
+        if (this.streamingList) {
+            const item = document.createElement('div');
+            item.className = 'streaming-item';
+            item.dataset.streamId = streamId;
+            item.textContent = `Streaming: ${String(streamId).slice(0, 8)}…`;
+            item.addEventListener('click', () => {
+                const st = this.streamState[streamId];
+                if (st && st.el) st.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+            this.streamingList.appendChild(item);
+        }
+    }
+
+    decrementStreaming(streamId) {
+        if (this.streamingCount > 0) this.streamingCount -= 1;
+        if (this.streamingTrayCount) this.streamingTrayCount.textContent = String(this.streamingCount);
+        if (this.streamingList) {
+            const li = this.streamingList.querySelector(`[data-stream-id="${streamId}"]`);
+            if (li) this.streamingList.removeChild(li);
+        }
+        if (this.streamingCount === 0 && this.streamingTray) {
+            this.streamingTray.style.display = 'none';
+            if (this.streamingPanel) this.streamingPanel.classList.remove('show');
         }
     }
     
