@@ -369,9 +369,9 @@
     </style>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <!-- Markdown rendering and sanitization -->
-    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js" integrity="sha256-y6Jg1s6J4cS0+R7gTtX1Z3c9x6nOaV9i8kZlXzEvmqU=" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha256-0hXk0x7oZgq3Fj0n2vYQm1GG9Zk7h8v0V6Q3qk7t1CY=" crossorigin="anonymous"></script>
+    <!-- Markdown rendering and sanitization (local vendor) -->
+    <script src="/static/js/vendor/markdown-it.min.js"></script>
+    <script src="/static/js/vendor/purify.min.js"></script>
     <!-- Local-only runtime (no external CDNs). Markdown is rendered client-side with a built-in parser. -->
 </head>
 <body>
