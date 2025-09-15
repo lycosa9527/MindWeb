@@ -77,6 +77,12 @@ class MindWebChatroom {
         this.streamingCount = 0;
         // Markdown renderer (full support) with sanitization handled via DOMPurify
         this.md = (window.markdownit ? window.markdownit({ html: false, linkify: true, breaks: true }) : null);
+        if (this.md && window.markdownitTaskLists) {
+            this.md.use(window.markdownitTaskLists, { enabled: true, label: true, labelAfter: true });
+        }
+        if (this.md && window.markdownitMultimdTable) {
+            this.md.use(window.markdownitMultimdTable, { enableMultilineRows: true, enableRowspan: true, enableTableCaptions: true });
+        }
         
         console.log(`Chatroom initialized for user: ${this.username} (${this.userId})`);
     }
@@ -199,6 +205,9 @@ class MindWebChatroom {
         this.streamingTrayCount = document.getElementById('streamingTrayCount');
         this.streamingPanel = document.getElementById('streamingPanel');
         this.streamingList = document.getElementById('streamingList');
+        this.imgModal = document.getElementById('imgModal');
+        this.imgModalImg = document.getElementById('imgModalImg');
+        this.imgModalClose = document.getElementById('imgModalClose');
     }
     
     bindEvents() {
@@ -265,6 +274,14 @@ class MindWebChatroom {
         if (this.streamingTrayBtn) {
             this.streamingTrayBtn.addEventListener('click', () => {
                 this.streamingPanel.classList.toggle('show');
+            });
+        }
+        if (this.imgModalClose) {
+            this.imgModalClose.addEventListener('click', () => this.hideImageModal());
+        }
+        if (this.imgModal) {
+            this.imgModal.addEventListener('click', (e) => {
+                if (e.target === this.imgModal) this.hideImageModal();
             });
         }
         
@@ -769,10 +786,23 @@ class MindWebChatroom {
                     img.addEventListener('load', onLoad, { once: true });
                     img.addEventListener('error', () => {}, { once: true });
                 }
+                img.addEventListener('click', () => this.showImageModal(img.src));
             });
         } catch (e) {
             // noop
         }
+    }
+
+    showImageModal(src) {
+        if (!this.imgModal || !this.imgModalImg) return;
+        this.imgModalImg.src = src;
+        this.imgModal.style.display = 'flex';
+    }
+
+    hideImageModal() {
+        if (!this.imgModal || !this.imgModalImg) return;
+        this.imgModal.style.display = 'none';
+        this.imgModalImg.src = '';
     }
     
     finishAIMessage(streamId) {
