@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+
+# Virtual env
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.*
+
+# SQLite DB and migrations artifacts
+*.sqlite3
+*.db
+mindweb.db
+alembic.ini
+alembic/
+
+# Node / Frontend caches (if any)
+node_modules/
+.pnpm-store/
+
+# Coverage / Test
+htmlcov/
+.coverage*
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+

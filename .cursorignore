@@ -1,0 +1,56 @@
+# Cursor ignore file for MindWeb project
+# Allow .env file for configuration access
+
+# Ignore common build and cache directories
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Ignore virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore logs (but allow access to .env)
+logs/*.log
+
+# Allow .env file (explicitly allow it)
+!.env
+
+# Ignore database files in instance folder
+instance/*.db
+instance/*.sqlite
+
+# Allow access to important configuration files
+!env.example
+!config.py
