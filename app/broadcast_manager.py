@@ -22,12 +22,12 @@ class BroadcastManager:
     def add_listener(self, queue: asyncio.Queue):
         """Add SSE listener queue"""
         self.sse_listeners.add(queue)
-        logger.info(f"SSE listener added. Total listeners: {len(self.sse_listeners)}")
+        logger.debug(f"SSE listener added. Total listeners: {len(self.sse_listeners)}")
     
     def remove_listener(self, queue: asyncio.Queue):
         """Remove SSE listener queue"""
         self.sse_listeners.discard(queue)
-        logger.info(f"SSE listener removed. Total listeners: {len(self.sse_listeners)}")
+        logger.debug(f"SSE listener removed. Total listeners: {len(self.sse_listeners)}")
     
     async def broadcast(self, message: Dict[str, Any]):
         """Broadcast message to all connected SSE clients"""

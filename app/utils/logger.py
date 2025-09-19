@@ -152,6 +152,12 @@ class SuppressShutdownFilter(logging.Filter):
     MESSAGES = (
         'Task cancelled, timeout graceful shutdown exceeded',
         'Waiting for connections to close. (CTRL+C to force quit)',
+        'Cancel 1 running task(s), timeout graceful shutdown exceeded',
+        'Waiting for application shutdown',
+        'Application shutdown complete',
+        'Finished server process',
+        'Exception in ASGI application',
+        'asyncio.exceptions.CancelledError',
     )
 
     def filter(self, record: logging.LogRecord) -> bool:

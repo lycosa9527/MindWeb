@@ -113,9 +113,12 @@ def main():
     ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
 ================================================================================
 """
+    # Get port from environment variable
+    port = int(os.getenv("PORT", 9530))
+    
     print(banner)
     print("MindWeb Chatroom - FastAPI + Uvicorn")
-    print("Server: http://localhost:9530")
+    print(f"Server: http://localhost:{port}")
     print("Framework: FastAPI + Uvicorn")
     print("Database: SQLite (Simple & Robust)")
     print("AI Integration: Dify API with Streaming")
@@ -134,14 +137,14 @@ def main():
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=9530,
+        port=port,
         reload=False,  # Disable reload for better signal handling
         log_config=get_uvicorn_log_config(),
         log_level="info",
         access_log=False,  # access logs are noisy; app logs still show requests if needed
         loop="asyncio",
         timeout_keep_alive=5,
-        timeout_graceful_shutdown=2  # Short grace period reduces noisy cancellations
+        timeout_graceful_shutdown=5  # Increased grace period for proper cleanup
     )
 
 if __name__ == "__main__":

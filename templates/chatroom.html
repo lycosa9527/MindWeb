@@ -192,6 +192,7 @@
         .ai-preview.clamped {
             display: -webkit-box;
             -webkit-line-clamp: 5;
+            line-clamp: 5;
             -webkit-box-orient: vertical;
             overflow: hidden;
             position: relative;
@@ -405,7 +406,7 @@
             <div class="header-actions">
                 <button class="header-btn" id="langBtn">
                     <span>🌐</span>
-                    中文
+                    <span class="i18n-langToggle">中文</span>
                 </button>
                 <button class="header-btn" id="shareBtn">
                     <span>🔗</span>
@@ -433,8 +434,8 @@
             </div>
             
             <div class="mode-toggle">
-                <button class="mode-btn active" data-mode="mindmate">🤖 MindMate</button>
-                <button class="mode-btn" data-mode="group">👥 Group Chat</button>
+                <button class="mode-btn active" data-mode="mindmate">🤖 <span class="i18n-mindmate">MindMate</span></button>
+                <button class="mode-btn" data-mode="group">👥 <span class="i18n-groupChat">Group Chat</span></button>
             </div>
             
             <div class="input-area">
@@ -442,7 +443,7 @@
                     <textarea 
                         class="message-input" 
                         id="messageInput" 
-                        placeholder="Type your message..."
+                        placeholder="问问 MindMate AI 吧…"
                         rows="1"
                     ></textarea>
                     <button class="send-btn" id="sendBtn" disabled>
@@ -460,10 +461,10 @@
         <!-- QR Modal -->
         <div id="qrModal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
             <div style="background: #fff; padding: 20px 20px 44px 20px; border-radius: 12px; width: 340px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); position: relative;">
-                <div id="qrTitle" style="font-weight: 700; margin-bottom: 10px;">Share</div>
+                <div id="qrTitle" style="font-weight: 700; margin-bottom: 10px;" class="i18n-shareTitle">Share</div>
                 <div id="qrcode" style="margin: 6px auto 8px auto; display: inline-block;"></div>
                 <div id="qrUrl" style="font-size: 16px; color: #000; word-break: break-all; margin-top: 2px;"></div>
-                <button id="qrCloseBtn" class="header-btn" style="position: absolute; right: 16px; bottom: 12px;">Close</button>
+                <button id="qrCloseBtn" class="header-btn i18n-close" style="position: absolute; right: 16px; bottom: 12px;">Close</button>
             </div>
         </div>
     </div>

@@ -301,22 +301,25 @@ class MindWebChatroom {
     applyTranslations() {
         document.documentElement.setAttribute('lang', this.lang);
         
-        // Header buttons
-        if (this.shareBtn) this.shareBtn.innerHTML = '<span>🔗</span>' + this.t('share');
-        if (this.usersBtn) this.usersBtn.innerHTML = '<span>👥</span>' + this.t('users');
-        if (this.langBtn) this.langBtn.innerHTML = '<span>🌐</span>' + this.t('langToggle');
-        if (this.qrTitleEl) this.qrTitleEl.textContent = this.t('shareTitle');
-        if (this.qrCloseBtn) this.qrCloseBtn.textContent = this.t('close');
+        // Header buttons - use class-based approach
+        const shareBtnText = document.querySelector('.i18n-share');
+        const usersBtnText = document.querySelector('.i18n-users');
+        const langBtnText = document.querySelector('.i18n-langToggle');
+        const mindmateBtnText = document.querySelector('.i18n-mindmate');
+        const groupBtnText = document.querySelector('.i18n-groupChat');
+        const qrTitleText = document.querySelector('.i18n-shareTitle');
+        const qrCloseText = document.querySelector('.i18n-close');
+        
+        if (shareBtnText) shareBtnText.textContent = this.t('share');
+        if (usersBtnText) usersBtnText.textContent = this.t('users');
+        if (langBtnText) langBtnText.textContent = this.t('langToggle');
+        if (mindmateBtnText) mindmateBtnText.textContent = this.t('mindmate');
+        if (groupBtnText) groupBtnText.textContent = this.t('groupChat');
+        if (qrTitleText) qrTitleText.textContent = this.t('shareTitle');
+        if (qrCloseText) qrCloseText.textContent = this.t('close');
         
         // Typing indicator
         if (this.typingText) this.typingText.textContent = this.t('typing');
-        
-        // Mode buttons
-        const modeBtns = Array.from(this.modeBtns);
-        const mindmateBtn = modeBtns.find(b => b.dataset.mode === 'mindmate');
-        const groupBtn = modeBtns.find(b => b.dataset.mode === 'group');
-        if (mindmateBtn) mindmateBtn.textContent = '🤖 ' + this.t('mindmate');
-        if (groupBtn) groupBtn.textContent = '👥 ' + this.t('groupChat');
         
         // Welcome system message (first system message on page)
         const welcomeEl = document.querySelector('.message.system .message-content');
@@ -344,13 +347,14 @@ class MindWebChatroom {
                 this.webUrl = data.web_url || null;
                 if (data.ai_name) this.aiName = data.ai_name;
                 if (data.ai_placeholder) this.aiPlaceholder = data.ai_placeholder;
+                if (data.ai_placeholder_zh) this.aiPlaceholderZh = data.ai_placeholder_zh;
                 // Update i18n labels dynamically based on config
                 this.i18n.en.mindmate = this.aiName;
                 this.i18n.zh.mindmate = this.aiName; // keep same name unless localized later
                 this.i18n.en.mindmateMeta = this.aiName;
                 this.i18n.zh.mindmateMeta = this.aiName;
                 this.i18n.en.askMindmatePlaceholder = this.aiPlaceholder;
-                this.i18n.zh.askMindmatePlaceholder = this.aiPlaceholder;
+                this.i18n.zh.askMindmatePlaceholder = this.aiPlaceholderZh || this.aiPlaceholder;
                 // Re-apply translations to reflect new labels/placeholders
                 this.applyTranslations();
             }

@@ -38,6 +38,7 @@ class ChatConfigResponse(BaseModel):
     web_url: str
     ai_name: str
     ai_placeholder: str
+    ai_placeholder_zh: str
 
 async def get_dify_client(request: Request) -> AsyncDifyClient:
     """Get Dify client from app state"""
@@ -297,7 +298,13 @@ async def get_chat_config():
         web_url = os.getenv("WEB_URL", "http://localhost:9530")
         ai_name = os.getenv("AI_NAME", "MindMate")
         ai_placeholder = os.getenv("AI_PLACEHOLDER", "Ask MindMate AI anything...")
-        return ChatConfigResponse(web_url=web_url, ai_name=ai_name, ai_placeholder=ai_placeholder)
+        ai_placeholder_zh = os.getenv("AI_PLACEHOLDER_ZH", "问问 MindMate AI 吧…")
+        return ChatConfigResponse(
+            web_url=web_url, 
+            ai_name=ai_name, 
+            ai_placeholder=ai_placeholder,
+            ai_placeholder_zh=ai_placeholder_zh
+        )
     except Exception as e:
         logger.error(f"Error reading config: {e}")
         raise HTTPException(status_code=500, detail="Failed to load config")
